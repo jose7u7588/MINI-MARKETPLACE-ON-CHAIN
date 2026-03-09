@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 // ID del Solana Program, este espacio se llena automaticamente al haver el "build"
-declare_id!("");
+declare_id!("2BWRjCKT4Ah34cWEpxTU8wxTLN8UX72iwUuvKg8rp5uX");
 
 #[program] // Macro que convierte codigo de Rust a Solana. Apartir de aqui empieza tu codigo!
 pub mod biblioteca {
