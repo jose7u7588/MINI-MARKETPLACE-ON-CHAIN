@@ -136,4 +136,4 @@ La PDA se valida en cada instrucción usando los seeds `["tienda", owner.key()]`
 
 ## Autor
 
-Proyecto desarrollado como requisito de certificación del curso **WayLearning — Desarrollo en Solana**.
+Proyecto desarrollado como requisito de certificación del curso **WayLearn — Desarrollo en Solana**.
