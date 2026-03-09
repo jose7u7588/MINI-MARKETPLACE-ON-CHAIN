@@ -1,217 +1,292 @@
 use anchor_lang::prelude::*;
-// ID del Solana Program, este espacio se llena automaticamente al haver el "build"
+
+// Playground actualiza este ID automaticamente al hacer Build
 declare_id!("2BWRjCKT4Ah34cWEpxTU8wxTLN8UX72iwUuvKg8rp5uX");
 
-#[program] // Macro que convierte codigo de Rust a Solana. Apartir de aqui empieza tu codigo!
-pub mod biblioteca {
-    use super::*; // Importa todas los structs y enums definidos fuera del modulo
+#[program]
+pub mod marketplace {
+    use super::*;
 
-    //////////////////////////// Instruccion: Crear Biblioteca /////////////////////////////////////
+    ///////////////////////// Instruccion: Crear Tienda /////////////////////////
     /*
-    Permite la creacion de una PDA (Program Derived Adress), un tipo especial de cuenta en solana que permite prescindir 
-    del uso de llaves privadas para la firma de transacciones. 
+    Crea una PDA (Program Derived Address) unica por wallet.
+    Guarda el bump en el struct para que Anchor pueda validar
+    la PDA correctamente en todas las instrucciones siguientes.
 
-    Esta cuenta contendra el objeto (struct) de tipo Biblioteca donde podremos almacenar los Libros. 
-    La creacion de la PDA depende de 3 cosas:
-        * Wallet address 
-        * Program ID 
-        * string representativo, regularmente relacionado con el nombre del proyecto
-    
-    La explicacion de esto continua en el struct NuevaBiblioteca
+    Parametros:
+        * nombre      -> nombre de la tienda      -> String (max 60 chars)
+        * descripcion -> descripcion de la tienda  -> String (max 200 chars)
+    */
+    pub fn crear_tienda(
+        context: Context<NuevaTienda>,
+        nombre: String,
+        descripcion: String,
+    ) -> Result<()> {
+        let owner_id = context.accounts.owner.key();
+        let bump = context.bumps.tienda; // Guardamos el bump de la PDA
 
-    Parametros de entrada:
-        * nombre -> nombre de la biblioteca -> tipo string
-     */
-    pub fn crear_biblioteca(context: Context<NuevaBiblioteca>, nombre: String) -> Result<()> {
-        // "Context" siempre suele ir como primer parametro, ya que permite acceder al objeto o cuenta con el que queremos interactuar
-        // Dentro del context va al tipo de objeto o cuenta con el que deseamos interactuar. 
-        let owner_id = context.accounts.owner.key(); // Accedemos al wallet address del caller 
-        msg!("Owner id: {}", owner_id); // Print de verificacion
+        msg!("Creando tienda para owner: {}", owner_id);
 
-        let libros: Vec<Libro> = Vec::new(); // Crea un vector vacio 
-
-        // Creamos un Struct de tipo biblioteca y lo guardamos directamente 
-        context.accounts.biblioteca.set_inner(Biblioteca { 
+        context.accounts.tienda.set_inner(Tienda {
             owner: owner_id,
+            bump,
             nombre,
-            libros,
+            descripcion,
+            productos: Vec::new(),
         });
-        Ok(()) // Representa una transaccion exitosa 
+
+        msg!("Tienda creada exitosamente!");
+        Ok(())
     }
 
-    //////////////////////////// Instruccion: Agregar Libro /////////////////////////////////////
+    ///////////////////////// Instruccion: Agregar Producto /////////////////////////
     /*
-    Agrega un libro al vector de libros ontenido en el struct Biblioteca. 
-    En este caso el contexto empleado es el struct NuevoLibro. Mientras que NuevaBiblioteca permite crear 
-    Instancias de una Biblioteca. NuevoLibro permite crear y modificar los valores relacionados a cualquier
-    struct de tipo Libro.
+    Agrega un nuevo producto al vector de productos de la tienda.
+    Solo el owner de la tienda puede agregar productos.
 
-    Parametros de entrada:
-        * nombre -> nombre del libro -> string
-        * paginas -> numero de paginas del libro -> u16
-     */ 
-    pub fn agregar_libro(context: Context<NuevoLibro>, nombre: String, paginas: u16) -> Result<()> {
-        require!( // Medida de seguridad para identificar que SOLO el owner de la biblioteca sea el que hace cambios en ella
-            context.accounts.biblioteca.owner == context.accounts.owner.key(), // Condicion, true -> continua, false -> error
-            Errores::NoEresElOwner // Codigo de error, ver enum Errores
-        ); 
+    Parametros:
+        * nombre      -> nombre del producto       -> String (max 60 chars)
+        * descripcion -> descripcion del producto   -> String (max 200 chars)
+        * precio      -> precio en lamports         -> u64
+        * cantidad    -> unidades disponibles       -> u32
+    */
+    pub fn agregar_producto(
+        context: Context<ModificarTienda>,
+        nombre: String,
+        descripcion: String,
+        precio: u64,
+        cantidad: u32,
+    ) -> Result<()> {
+        require!(
+            context.accounts.tienda.owner == context.accounts.owner.key(),
+            Errores::NoEresElOwner
+        );
 
-        let libro = Libro { // Creacion de un struct tipo Libro
+        let producto = Producto {
             nombre,
-            paginas,
+            descripcion,
+            precio,
+            cantidad,
             disponible: true,
         };
 
-        context.accounts.biblioteca.libros.push(libro); // Agrega el Libro al vector de libros de Biblioteca
-
-        Ok(()) // Transaccion exitosa
+        context.accounts.tienda.productos.push(producto);
+        msg!("Producto agregado exitosamente!");
+        Ok(())
     }
 
-    //////////////////////////// Instruccion: Eliminar Libro /////////////////////////////////////
+    ///////////////////////// Instruccion: Actualizar Producto /////////////////////////
     /*
-    Elimina un libro apartir de su nombre. Error si libro no existe, Error si vector vacio. 
+    Actualiza el precio y la cantidad de un producto existente.
+    Busca el producto por nombre. Error si no existe.
+    Solo el owner puede actualizar productos.
 
-    Parametros de entrada:
-        * nombre -> Nombre del libro -> string
-     */
-    pub fn eliminar_libro(context: Context<NuevoLibro>, nombre: String) -> Result<()> {
-        require!( // Medida de seguridad
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
+    Parametros:
+        * nombre         -> nombre del producto a actualizar -> String
+        * nuevo_precio   -> nuevo precio en lamports         -> u64
+        * nueva_cantidad -> nuevas unidades disponibles      -> u32
+    */
+    pub fn actualizar_producto(
+        context: Context<ModificarTienda>,
+        nombre: String,
+        nuevo_precio: u64,
+        nueva_cantidad: u32,
+    ) -> Result<()> {
+        require!(
+            context.accounts.tienda.owner == context.accounts.owner.key(),
             Errores::NoEresElOwner
         );
 
-        let libros = &mut context.accounts.biblioteca.libros; // Referencia mutable al vector de libros
+        let productos = &mut context.accounts.tienda.productos;
 
-        for i in 0..libros.len() { // Se itera mediante el indice todo el contenido del vector en busca del libro a eliminar
-            if libros[i].nombre == nombre { // Si lo encuentra prodece a borrarlo mediante el metodo remove
-                libros.remove(i);
-                msg!("Libro {} eliminado!", nombre); // Mensaje de borrado exitoso
-                return Ok(()); // Transaccion exitosa
+        for i in 0..productos.len() {
+            if productos[i].nombre == nombre {
+                productos[i].precio = nuevo_precio;
+                productos[i].cantidad = nueva_cantidad;
+                msg!(
+                    "Producto '{}' actualizado: precio={} lamports, cantidad={}",
+                    nombre,
+                    nuevo_precio,
+                    nueva_cantidad
+                );
+                return Ok(());
             }
         }
-        Err(Errores::LibroNoExiste.into()) // Transaccion fallida, nunca encontro el libro
+
+        Err(Errores::ProductoNoExiste.into())
     }
 
-    //////////////////////////// Instruccion: Ver Libros /////////////////////////////////////
+    ///////////////////////// Instruccion: Eliminar Producto /////////////////////////
     /*
-    Muestra en el log de la transaccion el contenido completo del vector de libros de la Biblioteca
+    Elimina un producto del vector por su nombre.
+    Error si el vector esta vacio o si el producto no existe.
+    Solo el owner puede eliminar productos.
 
-    Parametros de entrada:
+    Parametros:
+        * nombre -> nombre del producto a eliminar -> String
+    */
+    pub fn eliminar_producto(
+        context: Context<ModificarTienda>,
+        nombre: String,
+    ) -> Result<()> {
+        require!(
+            context.accounts.tienda.owner == context.accounts.owner.key(),
+            Errores::NoEresElOwner
+        );
+
+        require!(
+            !context.accounts.tienda.productos.is_empty(),
+            Errores::TiendaSinProductos
+        );
+
+        let productos = &mut context.accounts.tienda.productos;
+
+        for i in 0..productos.len() {
+            if productos[i].nombre == nombre {
+                productos.remove(i);
+                msg!("Producto '{}' eliminado exitosamente!", nombre);
+                return Ok(());
+            }
+        }
+
+        Err(Errores::ProductoNoExiste.into())
+    }
+
+    ///////////////////////// Instruccion: Alternar Disponibilidad /////////////////////////
+    /*
+    Cambia el estado de disponibilidad de un producto.
+    true -> false o false -> true.
+    Solo el owner puede alternar la disponibilidad.
+
+    Parametros:
+        * nombre -> nombre del producto -> String
+    */
+    pub fn alternar_disponibilidad(
+        context: Context<ModificarTienda>,
+        nombre: String,
+    ) -> Result<()> {
+        require!(
+            context.accounts.tienda.owner == context.accounts.owner.key(),
+            Errores::NoEresElOwner
+        );
+
+        let productos = &mut context.accounts.tienda.productos;
+
+        for i in 0..productos.len() {
+            if productos[i].nombre == nombre {
+                let nuevo_estado = !productos[i].disponible;
+                productos[i].disponible = nuevo_estado;
+                msg!(
+                    "Producto '{}' ahora tiene disponibilidad: {}",
+                    nombre,
+                    nuevo_estado
+                );
+                return Ok(());
+            }
+        }
+
+        Err(Errores::ProductoNoExiste.into())
+    }
+
+    ///////////////////////// Instruccion: Ver Productos /////////////////////////
+    /*
+    Muestra en el log todos los productos de la tienda.
+    Solo el owner puede ver sus productos.
+
+    Parametros:
         Ninguno
-     */
-    pub fn ver_libros(context: Context<NuevoLibro>) -> Result<()> {
-        require!( // Medida de seguridad 
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
+    */
+    pub fn ver_productos(context: Context<ModificarTienda>) -> Result<()> {
+        require!(
+            context.accounts.tienda.owner == context.accounts.owner.key(),
             Errores::NoEresElOwner
         );
 
-        // :#? requiere que NuevoLibro tenga atributo Debug. Permite la visualizacion completa del vector en el log
-        msg!("La lista de libros actualmente es: {:#?}", context.accounts.biblioteca.libros); // Print en log
-        Ok(()) // Transaccion exitosa 
-    }
-
-    
-    //////////////////////////// Instruccion: Alternar Estado /////////////////////////////////////
-    /* 
-    Cambia el estado de disponible de false a true o de true a false.
-
-    Parametros de entrada:
-        * nombre -> Nombre del libro -> string
-     */
-    pub fn alternar_estado(context: Context<NuevoLibro>, nombre: String) -> Result<()> {
-        require!( // Medida de seguridad
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
-            Errores::NoEresElOwner
+        msg!(
+            "Productos en la tienda '{}': {:#?}",
+            context.accounts.tienda.nombre,
+            context.accounts.tienda.productos
         );
 
-        let libros = &mut context.accounts.biblioteca.libros; // Referencia mutable al vector de libros
-        for i in 0..libros.len() { // Se itera mediante el indice el vector de libros
-            let estado = libros[i].disponible;  // Se almacena el estado del vector actual
-
-            if libros[i].nombre == nombre { // Si ecuentra el nombre del libro procede a cambiar el valor del estado 
-                let nuevo_estado = !estado;
-                libros[i].disponible = nuevo_estado;
-                msg!("El libro: {} ahora tiene un valor de disponibilidad: {}", nombre, nuevo_estado); // log print de la nueva disponibilidad
-                return Ok(()); // Transaccion exitosa
-            }
-        }
-
-        Err(Errores::LibroNoExiste.into()) // Transaccion fallida, libro no existe
+        Ok(())
     }
-
 }
 
-/*
-Codigos de error
-Todos los codigos se almacenan en un enum con la siguiente estructura:
-#[msg("MENSAJE DE ERROR")] (dentro de las comillas)
-NombreDelError, (En camel case)
-*/
+///////////////////////// Codigos de Error /////////////////////////
 #[error_code]
 pub enum Errores {
-    #[msg("Error, no eres el propietario de la biblioteca que deseas modificar")]
+    #[msg("Error: No eres el propietario de esta tienda")]
     NoEresElOwner,
-    #[msg("Error, el libro con el que deseas interactuar no existe")]
-    LibroNoExiste,
+
+    #[msg("Error: El producto que buscas no existe en la tienda")]
+    ProductoNoExiste,
+
+    #[msg("Error: La tienda no tiene productos registrados")]
+    TiendaSinProductos,
 }
 
-#[account] // Especifica que el strcut es una cuenta que se almacenara en la blockchain
-#[derive(InitSpace)] // Genera la constante INIT_SPACE y determina el espacio de almacenamiento necesario 
-pub struct Biblioteca { // Define la Biblioteca
-    owner: Pubkey, // Pubkey es un formato de llave publica de 32 bytes 
+///////////////////////// Structs /////////////////////////
 
-    #[max_len(60)] // Cantidad maxima de caracteres del string: nombre
-    nombre: String,
+// Cuenta principal almacenada on-chain (PDA unica por wallet)
+#[account]
+#[derive(InitSpace)]
+pub struct Tienda {
+    pub owner: Pubkey,  // Llave publica del dueno (32 bytes)
+    pub bump: u8,       // Bump de la PDA, necesario para validarla
 
-    #[max_len(10)] // Tamaño maximo del vector libros 
-    libros: Vec<Libro>,
-}
-
-/*
-Struct interno o secundario (No es una cuenta). Se define por derive y cuenta con los siguientes atributos:
-    * AnchorSerialize -> Permite guardar el struct en la cuenta 
-    * AnchorDeserialize -> Permite leer su contenido desde la cuenta 
-    * Clone -> Para copiar su contenido o valores 
-    * InitSpace -> Calcula el tamaño necesario para ser almacenado en la blockchain
-    * PartialEq -> Para usar sus valores y compararlos con "=="
-    * Debug -> Para mostrarlo en log con ":?" o ":#?"
-*/
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, PartialEq, Debug)]
-pub struct Libro {
     #[max_len(60)]
-    nombre: String,
+    pub nombre: String, // Nombre de la tienda
 
-    // Los siguientes datos no rquieren de max_len porque ya estan definidos (numero de 16 bits y false o true)
-    paginas: u16, 
+    #[max_len(200)]
+    pub descripcion: String, // Descripcion de la tienda
 
-    disponible: bool,
+    #[max_len(10)] // Maximo 10 productos por tienda
+    pub productos: Vec<Producto>,
 }
 
+// Struct interno (no es una cuenta), representa un producto del marketplace
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, PartialEq, Debug)]
+pub struct Producto {
+    #[max_len(60)]
+    pub nombre: String, // Nombre del producto
 
-// Creacion de los contextos para las instrucciones (funciones)
-#[derive(Accounts)] // Especifica que este struct describe las cuentas que se requieren para determinada instruccion
-pub struct NuevaBiblioteca<'info> { // contexto de la instruccion
-    #[account(mut)] 
-    pub owner: Signer<'info>, // Se define que el owner como el que pagara la transaccion, por eso es mut, para que cambie el balance de la cuenta
+    #[max_len(200)]
+    pub descripcion: String, // Descripcion del producto
+
+    pub precio: u64,    // Precio en lamports (1 SOL = 1_000_000_000 lamports)
+    pub cantidad: u32,  // Unidades disponibles en inventario
+    pub disponible: bool, // true = activo, false = inactivo
+}
+
+///////////////////////// Contextos /////////////////////////
+
+// Contexto para crear una nueva tienda (PDA)
+#[derive(Accounts)]
+pub struct NuevaTienda<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>, // Firma y paga la transaccion
 
     #[account(
-        init, // Inidica que al llamar la instruccuion se creara una cuenta
-        // puede ser remplazado por "init_if_needed" para que solo se cree una vez por caller
-        payer = owner, // Se especifica que quien paga el llamado a la instruccion, en este caso llama la instruccion 
-        space = Biblioteca::INIT_SPACE + 8, // Se calcula el espacio requerido para almacenar el Solana Program On-Chain
-        seeds = [b"biblioteca", owner.key().as_ref()], // Se especifica que la cuenta es una PDA que depende de un string y el id del owner
-        bump // Metodo para determinar el el id de la biblioteca en base a lo anterior 
+        init,
+        payer = owner,
+        space = Tienda::INIT_SPACE + 8, // +8 por el discriminador de Anchor
+        seeds = [b"tienda", owner.key().as_ref()], // PDA unica por wallet
+        bump
     )]
-    pub biblioteca: Account<'info, Biblioteca>, // Se especifica que la cuenta creada (PDA) almacenara la biblioteca 
+    pub tienda: Account<'info, Tienda>,
 
-    pub system_program: Program<'info, System>, // Programa necesario para crear la cuenta 
+    pub system_program: Program<'info, System>, // Necesario para crear cuentas
 }
 
-// Contexto para la creacion y modificacion de libros 
-#[derive(Accounts)] // Especifica que este struct se requiere para todas las instrucciones relacionadas con la creacion o modificacion de Libro
-pub struct NuevoLibro<'info> {
-    pub owner: Signer<'info>, // El owner de la cuenta es quien paga la transaccion
+// Contexto para todas las instrucciones que modifican o leen la tienda
+#[derive(Accounts)]
+pub struct ModificarTienda<'info> {
+    pub owner: Signer<'info>, // El owner firma la transaccion
 
-    #[account(mut)] 
-    pub biblioteca: Account<'info, Biblioteca>, // Se marca biblioteca como mutable porque se modificara tanto el vector como los libros que contiene
+    #[account(
+        mut,
+        seeds = [b"tienda", owner.key().as_ref()], // Valida que sea la PDA correcta
+        bump = tienda.bump                          // Usa el bump guardado en el struct
+    )]
+    pub tienda: Account<'info, Tienda>,
 }
